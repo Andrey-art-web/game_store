@@ -5,16 +5,22 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_webhook_parallel():
-    # Сначала создаем заказ
+    # Открываем асинхронный HTTP-клиент (нужен для всех запросов)
     async with httpx.AsyncClient() as client:
+        # Шаг 1: Создаём заказ
         order_response = await client.post(
             "http://127.0.0.1:8002/api/orders",
-            json={"sku": "STEAM-TOPUP-500"}
+            json={
+                "items": [
+                    {"sku": "STEAM-TOPUP-500", "price": 500}
+                ],
+                "total_amount": 500
+            }
         )
         order_id = order_response.json()["id"]
         print(f"Создан заказ с ID: {order_id}")
 
-        # Теперь шлём 50 одинаковых вебхуков ОДНОВРЕМЕННО
+        # Шаг 2: Готовим 50 одинаковых вебхуков (у всех один event_id!)
         tasks = []
         for i in range(50):
             tasks.append(client.post(
@@ -29,20 +35,21 @@ async def test_webhook_parallel():
                 }
             ))
 
+        # Шаг 3: Запускаем все 50 вебхуков ОДНОВРЕМЕННО
         responses = await asyncio.gather(*tasks)
 
-        # Смотрим на ответы
+        # Шаг 4: Смотрим на ответы
         statuses = [r.json()["status"] for r in responses]
         print(f"Ответы от 50 вебхуков: {statuses}")
 
-        # Проверяем, что только один вебхук получил статус "accepted"
+        # Шаг 5: Считаем, сколько accepted, сколько already_processed
         accepted_count = statuses.count("accepted")
         already_processed_count = statuses.count("already_processed")
 
         print(f"Принято: {accepted_count}")
         print(f"Уже обработано: {already_processed_count}")
 
-        # Это ключевая проверка!
+        # Шаг 6: Проверки
         assert accepted_count == 1, f"Ошибка! Принято {accepted_count} вебхуков, а должно быть 1!"
         assert already_processed_count == 49, f"Ошибка! Уже обработано {already_processed_count}, а должно быть 49!"
 
